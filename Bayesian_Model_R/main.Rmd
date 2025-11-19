@@ -61,20 +61,6 @@ get_features <- function(file_path, target_size){
   moment_vector <- as.vector(t(moment_features))
 }
 
-ebimage_features_matrix <- all_tumor_df %>%
-  pull(file_path) %>% 
-  map_dfr(~ {
-    result <- safely(extract_ebimage_features)(.)
-    if (is.null(result$result)) {
-      return(rep(NA, 10))
-    } else {
-      return(as_tibble(t(result$result)))
-    }
-  })
-final_bayes_data_ebimage <- bind_cols(
-  all_tumor_df, 
-  ebimage_features_matrix
-)
 ```
 
 
