@@ -48,6 +48,33 @@ print(head(all_tumor_df))
 print(table(all_tumor_df$split, all_tumor_df$label))
 ```
 ```{r}
+library(EBImage)
 
+get_features <- function(file_path, target_size){
+  img <- readImage(file.path)
+  img <- resize(img, w=target_size, h=target_size)
+  img_thresholded <- img > otsu(img)
+  img_labeled <- bwlabel(img_thresholded)
+  shape_features <- computeFeatures.shape(img_labeled, img)
+  moment_features <- computeFeatures.moment(img_labeled)
+  shape_vector <- as.vector(t(shape_features))
+  moment_vector <- as.vector(t(moment_features))
+}
+
+ebimage_features_matrix <- all_tumor_df %>%
+  pull(file_path) %>% 
+  map_dfr(~ {
+    result <- safely(extract_ebimage_features)(.)
+    if (is.null(result$result)) {
+      return(rep(NA, 10))
+    } else {
+      return(as_tibble(t(result$result)))
+    }
+  })
+final_bayes_data_ebimage <- bind_cols(
+  all_tumor_df, 
+  ebimage_features_matrix
+)
 ```
+
 
