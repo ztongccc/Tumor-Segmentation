@@ -13,6 +13,8 @@ knitr::opts_chunk$set(echo = TRUE)
 library(keras)
 library(tensorflow)
 library(tidyverse)
+library(caret)
+library(brms)
 ```
 
 ```{r}
@@ -51,16 +53,90 @@ print(table(all_tumor_df$split, all_tumor_df$label))
 library(EBImage)
 
 get_features <- function(file_path, target_size){
-  img <- readImage(file.path)
+  img <- readImage(file_path)
   img <- resize(img, w=target_size, h=target_size)
+  
+  if(length(dim(img))==3){
+    img <- channel(img, "gray")
+  }
+
   img_thresholded <- img > otsu(img)
   img_labeled <- bwlabel(img_thresholded)
   shape_features <- computeFeatures.shape(img_labeled, img)
-  moment_features <- computeFeatures.moment(img_labeled)
+  moment_features <- computeFeatures.moment(img_labeled, img)
   shape_vector <- as.vector(t(shape_features))
   moment_vector <- as.vector(t(moment_features))
+  intensity_features <- c(mean(img), sd(img), median(img), max(img) - min(img))
+  all_features <- c(shape_vector, moment_vector, intensity_features)
+  return (all_features)
 }
 
+
+feature_list <- list()
+for(i in 1:nrow(all_tumor_df)){
+  feature_list[[i]] <- get_features(all_tumor_df$file_path[i], target_size=64)
+}
+
+
+feature_matrix <- do.call(rbind, feature_list)
+
+feature_matrix
+```
+
+```{r}
+tumor_df <- as.data.frame(feature_matrix)
+
+tumor_df$split <- all_tumor_df$split
+tumor_df$is_tumor <- ifelse(all_tumor_df$label == "with_tumor", 1, 0)
+
+train <- tumor_df %>% filter(split == "train")
+test  <- tumor_df %>% filter(split == "test")
+
+p <- ncol(tumor_df) - 2
+
+train_x <- train[, 1:p]
+test_x <- test[, 1:p]
+
+minimax <- preProcess(train_x, method="range")
+train_x_scaled <- predict(minimax, train_x)
+test_x_scaled <- predict(minimax, test_x)
+
+train_x_scaled <- cbind(train_x_scaled, is_tumor = train$is_tumor)
+test_x_scaled <- cbind(test_x_scaled, is_tumor = test$is_tumor)
+
+head(train_x_scaled)
+```
+
+```{r}
+manual_prior <- c(prior(normal(0, 5), class = "Intercept"),
+                  prior(normal(0, 2.5), class = 'b'))
+
+tumor_brm_logit <- brm(
+  is_tumor ~.,
+  family = bernoulli("logit"),
+  data = train_x_scaled,
+  chains = 4,
+  iter = 1000,
+  warmup = 180,
+  prior = manual_prior
+)
+
+summary(tumor_brm_logit)
+plot(tumor_brm_logit, ask = FALSE)
+```
+
+```{r}
+posterior <- posterior_epred(
+  tumor_brm_logit,
+  newdata = test_x_scaled
+)
+
+prob_hat_test <- colMeans(posterior)
+y_pred_test <- ifelse(prob_hat_test > 0.5, 1, 0)
+y_true_test <- test_x_scaled$is_tumor
+
+bayes_acc_test <- mean(y_pred_test == y_true_test)
+bayes_acc_test
 ```
 
 
