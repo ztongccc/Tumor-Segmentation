@@ -10,8 +10,6 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ```{r}
-library(keras)
-library(tensorflow)
 library(tidyverse)
 library(caret)
 library(brms)
@@ -24,25 +22,25 @@ labels <- c("with_tumor", "without_tumor")
 
 split_label_combos <- expand_grid(split = splits, label = labels)
 
-get_data <- function(split, label){
+get_data <- function(split, label) {
   data_path <- file.path(all_tumor, split, label)
   print(data_path)
-  
+
   file_paths <- list.files(
     path = data_path,
     pattern = "\\.jpg$",
     full.names = TRUE
   )
-  
+
   tibble(
     file_path = file_paths,
     split = split,
-    label= label
+    label = label
   )
 }
 
 all_tumor_df <- split_label_combos %>%
-  rowwise %>%
+  rowwise() %>%
   do(get_data(.$split, .$label)) %>%
   ungroup()
 
@@ -52,11 +50,11 @@ print(table(all_tumor_df$split, all_tumor_df$label))
 ```{r}
 library(EBImage)
 
-get_features <- function(file_path, target_size){
+get_features <- function(file_path, target_size) {
   img <- readImage(file_path)
-  img <- resize(img, w=target_size, h=target_size)
-  
-  if(length(dim(img))==3){
+  img <- resize(img, w = target_size, h = target_size)
+
+  if (length(dim(img)) == 3) {
     img <- channel(img, "gray")
   }
 
@@ -68,13 +66,13 @@ get_features <- function(file_path, target_size){
   moment_vector <- as.vector(t(moment_features))
   intensity_features <- c(mean(img), sd(img), median(img), max(img) - min(img))
   all_features <- c(shape_vector, moment_vector, intensity_features)
-  return (all_features)
+  return(all_features)
 }
 
 
 feature_list <- list()
-for(i in 1:nrow(all_tumor_df)){
-  feature_list[[i]] <- get_features(all_tumor_df$file_path[i], target_size=64)
+for (i in 1:nrow(all_tumor_df)) {
+  feature_list[[i]] <- get_features(all_tumor_df$file_path[i], target_size = 64)
 }
 
 
@@ -90,14 +88,14 @@ tumor_df$split <- all_tumor_df$split
 tumor_df$is_tumor <- ifelse(all_tumor_df$label == "with_tumor", 1, 0)
 
 train <- tumor_df %>% filter(split == "train")
-test  <- tumor_df %>% filter(split == "test")
+test <- tumor_df %>% filter(split == "test")
 
 p <- ncol(tumor_df) - 2
 
 train_x <- train[, 1:p]
 test_x <- test[, 1:p]
 
-minimax <- preProcess(train_x, method="range")
+minimax <- preProcess(train_x, method = "range")
 train_x_scaled <- predict(minimax, train_x)
 test_x_scaled <- predict(minimax, test_x)
 
@@ -108,11 +106,13 @@ head(train_x_scaled)
 ```
 
 ```{r}
-manual_prior <- c(prior(normal(0, 5), class = "Intercept"),
-                  prior(normal(0, 2.5), class = 'b'))
+manual_prior <- c(
+  prior(normal(0, 5), class = "Intercept"),
+  prior(normal(0, 2.5), class = "b")
+)
 
 tumor_brm_logit <- brm(
-  is_tumor ~.,
+  is_tumor ~ .,
   family = bernoulli("logit"),
   data = train_x_scaled,
   chains = 4,

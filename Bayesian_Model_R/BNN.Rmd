@@ -1,0 +1,289 @@
+---
+title: "BNN"
+author: "Yiming Yao"
+date: "2025-12-01"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(magick)
+library(tidyverse)
+library(caret)
+library(torch)
+library(torchvision)
+```
+
+```{r}
+all_tumor <- "dataset_with_label"
+splits <- c("train", "test")
+labels <- c("with_tumor", "without_tumor")
+
+split_label_combos <- expand_grid(split = splits, label = labels)
+
+get_data <- function(split, label) {
+  data_path <- file.path(all_tumor, split, label)
+  print(data_path)
+
+  file_paths <- list.files(
+    path = data_path,
+    pattern = "\\.jpg$",
+    full.names = TRUE
+  )
+
+  tibble(
+    file_path = file_paths,
+    split = split,
+    label = label
+  )
+}
+
+all_tumor_df <- split_label_combos %>%
+  rowwise() %>%
+  do(get_data(.$split, .$label)) %>%
+  ungroup()
+
+print(head(all_tumor_df))
+print(table(all_tumor_df$split, all_tumor_df$label))
+```
+```{r}
+all_tumor_df
+```
+
+# data cleaning
+```{r}
+# Map the label
+label_mapping <- c("without_tumor" = 1, "with_tumor" = 2)
+model_df <- all_tumor_df %>%
+  mutate(label_idx = label_mapping[label])
+
+# Split train/test dataframe
+train_df <- model_df %>% filter(split == "train")
+test_df  <- model_df %>% filter(split == "test")
+
+cat("Train nums:", nrow(train_df), "\n")
+cat("Test nums:", nrow(test_df), "\n")
+```
+
+```{r}
+TumorDataset <- dataset(
+  name = "TumorDataset",
+  
+  initialize = function(df, transform = NULL) {
+    self$image_paths <- df$file_path
+    self$labels <- df$label_idx
+    self$transform <- transform
+  },
+  .getitem = function(i) {
+    img_path <- self$image_paths[i]
+    
+    img <- image_read(img_path) %>% 
+      image_convert(colorspace = "rgb")
+    
+    x <- transform_to_tensor(img)
+    
+    if (!is.null(self$transform)) {
+      x <- self$transform(x)
+    }
+    y <- torch_tensor(self$labels[i], dtype = torch_long())
+    
+    list(x = x, y = y)
+  },
+  
+  .length = function() {
+    length(self$image_paths)
+  }
+)
+```
+
+```{r}
+transforms <- function(img) {
+  img %>% 
+    transform_resize(size = c(224, 224)) %>% 
+    transform_normalize(mean = c(0.485, 0.456, 0.406), 
+                        std = c(0.229, 0.224, 0.225))
+}
+
+train_ds <- TumorDataset(train_df, transform = transforms)
+test_ds  <- TumorDataset(test_df, transform = transforms)
+
+# Create DataLoader
+train_dl <- dataloader(train_ds, batch_size = 32, shuffle = TRUE)
+test_dl  <- dataloader(test_ds, batch_size = 32, shuffle = FALSE)
+```
+
+```{r}
+batch <- train_dl$.iter()$.next()
+
+print(batch$x$shape) 
+print(batch$y)
+```
+
+```{r}
+BayesianTumorCNN <- nn_module(
+  "BayesianTumorCNN",
+  initialize = function() {
+
+    self$conv1 <- nn_conv2d(in_channels = 3, out_channels = 32, kernel_size = 3, padding = 1)
+    self$conv2 <- nn_conv2d(32, 64, kernel_size = 3, padding = 1)
+    self$conv3 <- nn_conv2d(64, 128, kernel_size = 3, padding = 1)
+    self$adaptive_pool <- nn_adaptive_avg_pool2d(output_size = c(1, 1))
+    
+    self$fc1 <- nn_linear(128, 64)
+    self$fc2 <- nn_linear(64, 2)
+    self$dropout <- nn_dropout(p = 0.5)
+  },
+  
+  forward = function(x) {
+    # Block 1
+    x <- self$conv1(x)
+    x <- nnf_relu(x)
+    x <- nnf_max_pool2d(x, 2)
+    x <- self$dropout(x) # MC Dropout
+    
+    # Block 2
+    x <- self$conv2(x)
+    x <- nnf_relu(x)
+    x <- nnf_max_pool2d(x, 2)
+    x <- self$dropout(x) # MC Dropout
+    
+    # Block 3
+    x <- self$conv3(x)
+    x <- nnf_relu(x)
+    x <- nnf_max_pool2d(x, 2)
+    x <- self$dropout(x) # MC Dropout
+    
+    # Adaptive Pool & Flatten
+    x <- self$adaptive_pool(x)
+    x <- torch_flatten(x, start_dim = 2)
+    
+    # Classifier
+    x <- self$fc1(x)
+    x <- nnf_relu(x)
+    x <- self$dropout(x)
+    
+    x <- self$fc2(x)
+    
+    nnf_log_softmax(x, dim = 2)
+  }
+)
+
+device <- if (cuda_is_available()) torch_device("cuda") else torch_device("cpu")
+model <- BayesianTumorCNN()
+model$to(device = device)
+```
+
+```{r}
+optimizer <- optim_adam(model$parameters, lr = 0.001)
+
+# Training loop method
+train_model <- function(epochs) {
+  model$train()
+  
+  for (epoch in 1:epochs) {
+    batch_losses <- c()
+    
+    coro::loop(for (b in train_dl) {
+      optimizer$zero_grad()
+      
+      x <- b$x$to(device = device)
+      y <- b$y$to(device = device)$view(c(-1))
+      
+      output <- model(x)
+      loss <- nnf_nll_loss(output, y)
+      
+      loss$backward()
+      optimizer$step()
+      
+      batch_losses <- c(batch_losses, loss$item())
+    })
+    
+    cat(sprintf("Epoch %d: Avg Loss = %.4f\n", epoch, mean(batch_losses)))
+  }
+}
+train_model(20)
+```
+
+```{r}
+# Prediction
+predict_tumor_bnn <- function(model, input_tensor, n_samples = 20) {
+  model$train()
+  
+  input_tensor <- input_tensor$to(device = device)
+  predictions <- list()
+  
+  for (i in 1:n_samples) {
+    with_no_grad({
+      output <- model(input_tensor)
+      prob <- torch_exp(output)
+      predictions[[i]] <- as_array(prob$cpu())
+    })
+  }
+  
+  batch_size <- dim(predictions[[1]])[1]
+  pred_array <- array(unlist(predictions), dim = c(batch_size, 2, n_samples))
+  
+  mean_probs <- apply(pred_array, c(1, 2), mean)
+  uncertainty <- apply(pred_array, c(1, 2), sd)
+  
+  list(
+    prob = mean_probs[, 2], 
+    unc = uncertainty[, 2]
+  )
+}
+
+cat("Generating predictions on test set...\n")
+results_list <- list()
+batch_idx <- 1
+
+coro::loop(for (b in test_dl) {
+  preds <- predict_tumor_bnn(model, b$x, n_samples = 30)
+  
+  true_labels <- as.numeric(b$y$to(device = "cpu"))
+  
+  batch_df <- data.frame(
+    True_Label_Idx = true_labels,
+    Pred_Prob_Tumor = preds$prob,
+    Uncertainty = preds$unc
+  )
+  results_list[[batch_idx]] <- batch_df
+  batch_idx <- batch_idx + 1
+})
+
+result_df <- bind_rows(results_list)
+
+plot_data <- result_df %>%
+  mutate(
+    Actual_Class = ifelse(True_Label_Idx == 2, "With Tumor", "Without Tumor"),
+    Predicted_Class = ifelse(Pred_Prob_Tumor > 0.5, "With Tumor", "Without Tumor"),
+    Correct = ifelse(Actual_Class == Predicted_Class, "Correct", "Wrong"),
+    bin = cut(Pred_Prob_Tumor, breaks = seq(0, 1, 0.1), include.lowest = TRUE)
+  )
+
+print(head(plot_data))
+```
+
+```{r}
+# Data for plot reliability diagram
+reliability_data <- plot_data %>%
+  group_by(bin) %>%
+  summarise(
+    mean_prob = mean(Pred_Prob_Tumor),
+    fraction_positives = mean(as.numeric(True_Label_Idx == 2)),
+    count = n()
+  ) %>%
+  filter(count > 0)
+
+# Plot the reliability diagram
+ggplot(reliability_data, aes(x = mean_prob, y = fraction_positives)) +
+  geom_abline(intercept = 0, slope = 1, linetype = "dashed", color = "gray") +
+  geom_line(group = 1, color = "blue", size = 1) +
+  geom_point(aes(size = count), color = "blue", alpha = 0.7) +
+  labs(
+    title = "Standard Reliability Diagram",
+    x = "Mean Predicted Probability (Confidence)",
+    y = "True Probability (% Tumor)"
+  ) +
+  xlim(0, 1) + ylim(0, 1) +
+  theme_minimal()
+```
