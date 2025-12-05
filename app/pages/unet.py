@@ -70,8 +70,10 @@ st.markdown("---")
 # Segmentation Results
 st.subheader("Segmentation Examples")
 
+st.image("images/unet_heatmap.png", caption="Heatmap of UNet result", use_container_width=True)
+
 st.success("""
-**Fig. 7: Demonstration of UNet result**
+**Heatmap of UNet result**
 
 The visualization shows three columns:
 1. **Original MRI Image**: Raw brain scan with tumor
