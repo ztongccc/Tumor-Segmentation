@@ -1,4 +1,8 @@
 import streamlit as st
+from pathlib import Path
+
+# Get the images directory path
+IMAGES_DIR = Path(__file__).parent.parent / "images"
 
 st.title("U-Net - Tumor Segmentation")
 
@@ -70,7 +74,7 @@ st.markdown("---")
 # Segmentation Results
 st.subheader("Segmentation Examples")
 
-st.image("images/unet_heatmap.png", caption="Heatmap of UNet result", use_container_width=True)
+st.image(str(IMAGES_DIR / "unet_heatmap.png"), caption="Heatmap of UNet result", use_container_width=True)
 
 st.success("""
 **Heatmap of UNet result**

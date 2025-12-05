@@ -1,4 +1,8 @@
 import streamlit as st
+from pathlib import Path
+
+# Get the images directory path
+IMAGES_DIR = Path(__file__).parent.parent / "images"
 
 st.title(" Brain Tumor Classification & Segmentation")
 
@@ -13,7 +17,7 @@ Brain cancer is now a severe health issue to all humans, and the manual recognit
 col1, col2 = st.columns(2)
 
 with col1:
-    st.image("images/brain_tumor.png", caption="Brain tumor effects on human", use_container_width=True)
+    st.image(str(IMAGES_DIR / "brain_tumor.png"), caption="Brain tumor effects on human", use_container_width=True)
     st.info("""
     **Brain tumor effects on human**
     
@@ -21,7 +25,7 @@ with col1:
     """)
 
 with col2:
-    st.image("images/tumor_stages.png", caption="Brain tumor stages", use_container_width=True)
+    st.image(str(IMAGES_DIR / "tumor_stages.png"), caption="Brain tumor stages", use_container_width=True)
     st.info("""
     **Brain tumor stages**
     

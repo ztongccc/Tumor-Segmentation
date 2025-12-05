@@ -1,4 +1,8 @@
 import streamlit as st
+from pathlib import Path
+
+# Get the images directory path
+IMAGES_DIR = Path(__file__).parent.parent / "images"
 
 st.title("CNN")
 
@@ -56,7 +60,7 @@ st.markdown("""
 The confusion matrix below shows the classification performance on the test set:
 """)
 
-st.image("images/cnn_confusion_matrix.png", caption="Confusion Matrix of CNN", use_container_width=True)
+st.image(str(IMAGES_DIR / "cnn_confusion_matrix.png"), caption="Confusion Matrix of CNN", use_container_width=True)
 
 st.info("""
 **Confusion Matrix of CNN**

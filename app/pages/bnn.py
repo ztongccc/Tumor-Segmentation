@@ -1,4 +1,8 @@
 import streamlit as st
+from pathlib import Path
+
+# Get the images directory path
+IMAGES_DIR = Path(__file__).parent.parent / "images"
 
 st.title("BNN - Bayesian Neural Networks")
 
@@ -73,7 +77,7 @@ st.markdown("---")
 # Standard Reliability Diagram
 st.subheader("Standard Reliability Diagram")
 
-st.image("images/reliability_diagram.png", caption="Standard Reliability Diagram", use_container_width=True)
+st.image(str(IMAGES_DIR / "reliability_diagram.png"), caption="Standard Reliability Diagram", use_container_width=True)
 
 st.success("""
 **Standard Reliability Diagram**

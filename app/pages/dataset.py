@@ -1,4 +1,8 @@
 import streamlit as st
+from pathlib import Path
+
+# Get the images directory path
+IMAGES_DIR = Path(__file__).parent.parent / "images"
 
 st.title("Dataset")
 
@@ -39,10 +43,10 @@ st.subheader("Sample Images")
 col3, col4 = st.columns(2)
 
 with col3:
-    st.image("images/with_tumor.jpg", caption="MRI image containing a brain tumor")
+    st.image(str(IMAGES_DIR / "with_tumor.jpg"), caption="MRI image containing a brain tumor")
 
 with col4:
-    st.image("images/without_tumor.jpg", caption="MRI image without a brain tumor")
+    st.image(str(IMAGES_DIR / "without_tumor.jpg"), caption="MRI image without a brain tumor")
 
 st.markdown("---")
 
@@ -80,10 +84,10 @@ st.subheader("Sample Segmentation Data")
 col7, col8 = st.columns(2)
 
 with col7:
-    st.image("images/mask.png", caption="Raw image with tumor section highlighted")
+    st.image(str(IMAGES_DIR / "mask.png"), caption="Raw image with tumor section highlighted")
 
 with col8:
-    st.image("images/raw_image.png", caption="Tumor section mask from the raw image")
+    st.image(str(IMAGES_DIR / "raw_image.png"), caption="Tumor section mask from the raw image")
 
 st.markdown("---")
 
